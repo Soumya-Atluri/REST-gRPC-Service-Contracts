@@ -1,0 +1,30 @@
+Inventory Service restarted with an artificial delay (2.5s) longer than the
+Order Service's one-second REST timeout:
+
+$ INVENTORY_DELAY_MS=2500 python rest/inventory_service.py
+REST Inventory Service listening on http://localhost:5001 (delay=2500ms)
+
+Order Service's timeout is unchanged (INVENTORY_TIMEOUT_SECONDS = 1.0,
+rest/order_service.py).
+
+--- Request made against the slow Inventory Service ---
+
+$ time curl -i -X POST http://localhost:5000/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"book","quantity":1}'
+
+HTTP/1.1 504 GATEWAY TIMEOUT
+Content-Type: application/json
+
+{"error":"inventory_timeout","message":"Inventory Service exceeded the 1.0 second timeout","order_status":"not_processed"}
+
+real    0m1.015s   <-- returned after ~1.0s (the configured timeout), NOT
+                       after 2.5s (the artificial delay): requests.Timeout
+                       is caught in the handler and translated into a clean
+                       504 instead of the Order Service hanging.
+
+Order Service log for this request:
+127.0.0.1 - - "POST /orders HTTP/1.1" 504 -
+
+See evidence/order-stays-running.txt for proof the Order Service process
+kept running and served a new, successful order right after this timeout.

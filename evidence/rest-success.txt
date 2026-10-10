@@ -1,0 +1,49 @@
+Terminal 1:
+$ INVENTORY_DELAY_MS=0 python rest/inventory_service.py
+REST Inventory Service listening on http://localhost:5001 (delay=0ms)
+ * Serving Flask app 'inventory_service'
+ * Running on http://127.0.0.1:5001
+
+Terminal 2:
+$ python rest/order_service.py
+REST Order Service listening on http://localhost:5000
+ * Serving Flask app 'order_service'
+ * Running on http://127.0.0.1:5000
+
+--- Successful order ---
+
+$ curl -i -X POST http://localhost:5000/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"book","quantity":2}'
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"inventory":{"available":true,"item_id":"book","quantity_remaining":8,"quantity_requested":2},"item_id":"book","order_status":"accepted","quantity":2}
+
+--- Insufficient inventory (item exists, not enough stock) ---
+
+$ curl -i -X POST http://localhost:5000/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"book","quantity":20}'
+
+HTTP/1.1 409 CONFLICT
+Content-Type: application/json
+
+{"error":"insufficient_inventory","inventory":{"error":"insufficient_inventory","item_id":"book","quantity_available":10,"quantity_requested":20},"message":"Order could not be accepted by Inventory Service","order_status":"rejected"}
+
+--- Unknown item ---
+
+$ curl -i -X POST http://localhost:5000/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"desk","quantity":1}'
+
+HTTP/1.1 404 NOT FOUND
+Content-Type: application/json
+
+{"error":"item_not_found","inventory":{"error":"item_not_found","item_id":"desk"},"message":"Order could not be accepted by Inventory Service","order_status":"rejected"}
+
+Order Service log for the three requests above:
+127.0.0.1 - - "POST /orders HTTP/1.1" 200 -
+127.0.0.1 - - "POST /orders HTTP/1.1" 409 -
+127.0.0.1 - - "POST /orders HTTP/1.1" 404 -

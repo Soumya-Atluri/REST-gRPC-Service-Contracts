@@ -1,0 +1,57 @@
+Both Order Services (REST and gRPC) are started once and never restarted
+during these demos. The same long-running process that absorbed the
+timeout / deadline failure below is the one that goes on to accept the
+very next order successfully, proving it never crashed.
+
+===========================================================================
+REST version
+===========================================================================
+
+Order Service log, unbroken, across all four REST demo requests in this
+session (no restart of order_service.py in between):
+
+127.0.0.1 - - "POST /orders HTTP/1.1" 200 -   <- normal success (sku book x2)
+127.0.0.1 - - "POST /orders HTTP/1.1" 409 -   <- insufficient inventory
+127.0.0.1 - - "POST /orders HTTP/1.1" 404 -   <- unknown item
+127.0.0.1 - - "POST /orders HTTP/1.1" 504 -   <- Inventory Service timed out (2.5s delay, 1.0s timeout)
+127.0.0.1 - - "POST /orders HTTP/1.1" 200 -   <- Inventory Service back to normal, next order accepted immediately
+
+The request right after the 504 timeout:
+
+$ curl -i -X POST http://localhost:5000/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"book","quantity":1}'
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"inventory":{"available":true,"item_id":"book","quantity_remaining":9,"quantity_requested":1},"item_id":"book","order_status":"accepted","quantity":1}
+
+===========================================================================
+gRPC version
+===========================================================================
+
+Order Service log, unbroken, across all three gRPC demo requests in this
+session (no restart of order_service.py in between):
+
+127.0.0.1 - - "POST /orders HTTP/1.1" 200 -   <- normal success (pen x4)
+127.0.0.1 - - "POST /orders HTTP/1.1" 409 -   <- insufficient inventory (laptop)
+127.0.0.1 - - "POST /orders HTTP/1.1" 504 -   <- Inventory Service exceeded the gRPC deadline (2.5s delay, 1.0s deadline)
+127.0.0.1 - - "POST /orders HTTP/1.1" 200 -   <- Inventory Service back to normal, next order accepted immediately
+
+The request right after the 504 deadline-exceeded response:
+
+$ curl -i -X POST http://localhost:5002/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"pen","quantity":1}'
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"inventory":{"available":true,"item_id":"pen","quantity_remaining":24,"quantity_requested":1},"item_id":"pen","order_status":"accepted","quantity":1}
+
+In both versions the Order Service's own `try`/`except` around the
+downstream call (requests.Timeout for REST, grpc.RpcError for gRPC) is what
+keeps the Flask process alive: the failure is caught, logged as a clean
+4xx/5xx JSON response, and the process loops right back to serving the next
+request.

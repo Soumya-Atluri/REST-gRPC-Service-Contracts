@@ -1,0 +1,44 @@
+Terminal 1:
+$ INVENTORY_DELAY_MS=0 python grpc_version/inventory_service.py
+gRPC Inventory Service listening on localhost:5003 (delay=0ms)
+
+Terminal 2:
+$ python grpc_version/order_service.py
+gRPC Order Service listening on http://localhost:5002
+ * Serving Flask app 'order_service'
+ * Running on http://127.0.0.1:5002
+
+--- Direct gRPC call using the generated client stub ---
+
+$ python grpc_version/grpc_client.py pen 4
+item_id: "pen"
+quantity_requested: 4
+quantity_remaining: 21
+available: true
+
+--- Same request through the Order Service's HTTP submission endpoint
+    (its downstream call to Inventory is gRPC) ---
+
+$ curl -i -X POST http://localhost:5002/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"pen","quantity":4}'
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"inventory":{"available":true,"item_id":"pen","quantity_remaining":21,"quantity_requested":4},"item_id":"pen","order_status":"accepted","quantity":4}
+
+--- Insufficient inventory: gRPC FAILED_PRECONDITION -> HTTP 409 ---
+
+$ curl -i -X POST http://localhost:5002/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"laptop","quantity":20}'
+
+HTTP/1.1 409 CONFLICT
+Content-Type: application/json
+
+{"error":"insufficient_inventory","message":"only 3 unit(s) available","order_status":"rejected"}
+
+Order Service log for the two HTTP requests above:
+127.0.0.1 - - "POST /orders HTTP/1.1" 200 -
+127.0.0.1 - - "POST /orders HTTP/1.1" 409 -

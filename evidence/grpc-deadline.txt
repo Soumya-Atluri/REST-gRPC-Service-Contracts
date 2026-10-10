@@ -1,0 +1,39 @@
+Inventory gRPC service restarted with an artificial delay (2.5s) longer than
+the Order Service's one-second gRPC deadline:
+
+$ INVENTORY_DELAY_MS=2500 python grpc_version/inventory_service.py
+gRPC Inventory Service listening on localhost:5003 (delay=2500ms)
+
+Order Service's deadline is unchanged (INVENTORY_DEADLINE_SECONDS = 1.0,
+grpc_version/order_service.py).
+
+--- Direct gRPC client against the slow Inventory Service ---
+
+$ python grpc_version/grpc_client.py pen 1
+gRPC error: code=DEADLINE_EXCEEDED details=Deadline Exceeded
+
+The client receives the standard gRPC DEADLINE_EXCEEDED status instead of
+hanging on the slow server.
+
+--- Order Service (HTTP-facing) call against the same slow Inventory ---
+
+$ time curl -i -X POST http://localhost:5002/orders \
+    -H "Content-Type: application/json" \
+    -d '{"item_id":"pen","quantity":1}'
+
+HTTP/1.1 504 GATEWAY TIMEOUT
+Content-Type: application/json
+
+{"error":"inventory_deadline_exceeded","message":"Inventory Service exceeded the 1.0 second gRPC deadline","order_status":"not_processed"}
+
+real    0m1.014s   <-- returned after ~1.0s (the configured deadline), NOT
+                       after 2.5s (the artificial delay): grpc.RpcError with
+                       code DEADLINE_EXCEEDED is caught in the handler and
+                       translated into a clean 504 instead of the Order
+                       Service hanging.
+
+Order Service log for this request:
+127.0.0.1 - - "POST /orders HTTP/1.1" 504 -
+
+See evidence/order-stays-running.txt for proof the Order Service process
+kept running and served a new, successful order right after this deadline.
